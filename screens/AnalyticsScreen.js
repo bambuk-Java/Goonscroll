@@ -719,6 +719,10 @@ const styles = StyleSheet.create({
         color: '#6B7280',
         flex: 2,
     },
+    View: {
+        flex: 1,
+        padding: 16,
+    }
 });
 
 export default AnalyticsScreen;

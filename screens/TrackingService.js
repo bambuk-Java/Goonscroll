@@ -1,25 +1,4 @@
-// Simple in-memory storage as fallback
-let memoryStorage = {};
-
-const SimpleStorage = {
-    async getItem(key) {
-        return memoryStorage[key] || null;
-    },
-
-    async setItem(key, value) {
-        memoryStorage[key] = value;
-        return Promise.resolve();
-    },
-
-    async getAllKeys() {
-        return Object.keys(memoryStorage);
-    },
-
-    async multiRemove(keys) {
-        keys.forEach(key => delete memoryStorage[key]);
-        return Promise.resolve();
-    }
-};
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 class TrackingService {
     constructor() {
@@ -29,6 +8,7 @@ class TrackingService {
         this.currentPlatform = null;
         this.isPowerMode = false;
         this.powerModeStartTime = null;
+        this.storagePrefix = 'goonscroll_'; // Prefix für alle unsere Keys
     }
 
     // PowerMode tracking - counts for all three platforms
@@ -138,14 +118,14 @@ class TrackingService {
         await this.startSession(newPlatform);
     }
 
-    // Save session to Storage
+    // Save session to AsyncStorage
     async saveSession(sessionData) {
         try {
             const dateKey = sessionData.date;
-            const storageKey = `analytics_${dateKey}`;
+            const storageKey = `${this.storagePrefix}analytics_${dateKey}`;
 
             // Get existing data for this date
-            const existingData = await SimpleStorage.getItem(storageKey);
+            const existingData = await AsyncStorage.getItem(storageKey);
             const dayData = existingData ? JSON.parse(existingData) : {
                 date: dateKey,
                 totalTime: 0,
@@ -170,7 +150,7 @@ class TrackingService {
             dayData.platforms[sessionData.platform].videos += videosThisSession;
 
             // Save updated data
-            await SimpleStorage.setItem(storageKey, JSON.stringify(dayData));
+            await AsyncStorage.setItem(storageKey, JSON.stringify(dayData));
 
             console.log(`💾 Saved session data for ${dateKey}:`, sessionData);
         } catch (error) {
@@ -182,9 +162,9 @@ class TrackingService {
     async trackShare(platform) {
         try {
             const today = this.getDateString(new Date());
-            const storageKey = `analytics_${today}`;
+            const storageKey = `${this.storagePrefix}analytics_${today}`;
 
-            const existingData = await SimpleStorage.getItem(storageKey);
+            const existingData = await AsyncStorage.getItem(storageKey);
             const dayData = existingData ? JSON.parse(existingData) : {
                 date: today,
                 totalTime: 0,
@@ -200,7 +180,7 @@ class TrackingService {
 
             dayData.sharesCount += 1;
 
-            await SimpleStorage.setItem(storageKey, JSON.stringify(dayData));
+            await AsyncStorage.setItem(storageKey, JSON.stringify(dayData));
             console.log(`📤 Tracked share for ${platform}`);
         } catch (error) {
             console.error('Error tracking share:', error);
@@ -210,8 +190,8 @@ class TrackingService {
     // Get analytics for specific date
     async getAnalytics(date) {
         try {
-            const storageKey = `analytics_${date}`;
-            const data = await SimpleStorage.getItem(storageKey);
+            const storageKey = `${this.storagePrefix}analytics_${date}`;
+            const data = await AsyncStorage.getItem(storageKey);
             return data ? JSON.parse(data) : null;
         } catch (error) {
             console.error('Error getting analytics:', error);
@@ -276,6 +256,150 @@ class TrackingService {
         return await this.getAnalyticsRange(this.getDateString(weekStart), this.getDateString(today));
     }
 
+    // ===== DATA MANAGEMENT METHODS =====
+
+    // Get all stored data keys (für Debugging)
+    async getAllStorageKeys() {
+        try {
+            const allKeys = await AsyncStorage.getAllKeys();
+            const goonscrollKeys = allKeys.filter(key => key.startsWith(this.storagePrefix));
+            return goonscrollKeys;
+        } catch (error) {
+            console.error('Error getting storage keys:', error);
+            return [];
+        }
+    }
+
+    // Get storage size (ungefähre Größe der gespeicherten Daten)
+    async getStorageSize() {
+        try {
+            const keys = await this.getAllStorageKeys();
+            let totalSize = 0;
+
+            for (const key of keys) {
+                const data = await AsyncStorage.getItem(key);
+                if (data) {
+                    totalSize += new Blob([data]).size; // Größe in Bytes
+                }
+            }
+
+            return {
+                totalKeys: keys.length,
+                totalSizeBytes: totalSize,
+                totalSizeKB: Math.round(totalSize / 1024),
+                keys: keys
+            };
+        } catch (error) {
+            console.error('Error calculating storage size:', error);
+            return { totalKeys: 0, totalSizeBytes: 0, totalSizeKB: 0, keys: [] };
+        }
+    }
+
+    // Clear specific date data
+    async clearDateData(date) {
+        try {
+            const storageKey = `${this.storagePrefix}analytics_${date}`;
+            await AsyncStorage.removeItem(storageKey);
+            console.log(`🗑️ Cleared data for ${date}`);
+            return true;
+        } catch (error) {
+            console.error('Error clearing date data:', error);
+            return false;
+        }
+    }
+
+    // Clear old data (älter als X Tage)
+    async clearOldData(daysToKeep = 30) {
+        try {
+            const keys = await this.getAllStorageKeys();
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+
+            const keysToRemove = [];
+
+            for (const key of keys) {
+                // Extract date from key: goonscroll_analytics_2025-01-15
+                const dateMatch = key.match(/analytics_(\d{4}-\d{2}-\d{2})/);
+                if (dateMatch) {
+                    const keyDate = new Date(dateMatch[1]);
+                    if (keyDate < cutoffDate) {
+                        keysToRemove.push(key);
+                    }
+                }
+            }
+
+            if (keysToRemove.length > 0) {
+                await AsyncStorage.multiRemove(keysToRemove);
+                console.log(`🗑️ Removed ${keysToRemove.length} old data entries`);
+            }
+
+            return keysToRemove.length;
+        } catch (error) {
+            console.error('Error clearing old data:', error);
+            return 0;
+        }
+    }
+
+    // Clear all analytics data (kompletter Reset)
+    async clearAllData() {
+        try {
+            const keys = await this.getAllStorageKeys();
+            await AsyncStorage.multiRemove(keys);
+            console.log(`🗑️ Cleared all analytics data (${keys.length} entries)`);
+            return keys.length;
+        } catch (error) {
+            console.error('Error clearing all data:', error);
+            return 0;
+        }
+    }
+
+    // Export all data (für Backup oder Debugging)
+    async exportAllData() {
+        try {
+            const keys = await this.getAllStorageKeys();
+            const exportData = {};
+
+            for (const key of keys) {
+                const data = await AsyncStorage.getItem(key);
+                if (data) {
+                    exportData[key] = JSON.parse(data);
+                }
+            }
+
+            return {
+                exportDate: new Date().toISOString(),
+                appVersion: '1.0.0',
+                totalEntries: keys.length,
+                data: exportData
+            };
+        } catch (error) {
+            console.error('Error exporting data:', error);
+            return null;
+        }
+    }
+
+    // Import data (von Backup wiederherstellen)
+    async importData(exportedData) {
+        try {
+            if (!exportedData || !exportedData.data) {
+                throw new Error('Invalid export data format');
+            }
+
+            let importedCount = 0;
+
+            for (const [key, data] of Object.entries(exportedData.data)) {
+                await AsyncStorage.setItem(key, JSON.stringify(data));
+                importedCount++;
+            }
+
+            console.log(`📥 Imported ${importedCount} data entries`);
+            return importedCount;
+        } catch (error) {
+            console.error('Error importing data:', error);
+            return 0;
+        }
+    }
+
     // Helper: Get date string in YYYY-MM-DD format
     getDateString(date) {
         return date.toISOString().split('T')[0];
@@ -306,18 +430,6 @@ class TrackingService {
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.round((seconds % 3600) / 60);
             return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-        }
-    }
-
-    // Clear all analytics data (for testing/reset)
-    async clearAllData() {
-        try {
-            const keys = await SimpleStorage.getAllKeys();
-            const analyticsKeys = keys.filter(key => key.startsWith('analytics_'));
-            await SimpleStorage.multiRemove(analyticsKeys);
-            console.log('🗑️ Cleared all analytics data');
-        } catch (error) {
-            console.error('Error clearing data:', error);
         }
     }
 

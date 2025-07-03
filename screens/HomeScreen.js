@@ -233,11 +233,6 @@ const HomeScreen = ({ navigation }) => {
                     <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
                         <Text style={styles.actionButtonText}>📤 Teilen</Text>
                     </TouchableOpacity>
-
-                    <View style={styles.statusIndicator}>
-                        <View style={[styles.statusDot, { backgroundColor: platforms[activeTab].color }]} />
-                        <Text style={styles.statusText}>Live</Text>
-                    </View>
                 </View>
 
                 {/* WebView Container with Swipe Gesture */}
@@ -288,18 +283,6 @@ const HomeScreen = ({ navigation }) => {
                         )}
                     </View>
                 </PanGestureHandler>
-
-                {/* Bottom Info Bar */}
-                <View style={styles.bottomBar}>
-                    <View style={styles.bottomInfo}>
-                        <Text style={styles.bottomText}>
-                            {platforms[activeTab].icon} {platforms[activeTab].name}
-                        </Text>
-                        <Text style={styles.bottomSubtext}>
-                            👆 Tippe Tabs • 👈👉 Wische um zu wechseln • ☝️ Scrolle Videos
-                        </Text>
-                    </View>
-                </View>
             </SafeAreaView>
         </GestureHandlerRootView>
     );
