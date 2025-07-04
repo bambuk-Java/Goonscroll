@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+// components/RealLoginModal.js - Echter personalisierter Login!
+
+import React, { useState, useRef } from 'react';
 import {
     View,
     Text,
@@ -9,235 +11,321 @@ import {
     ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as WebBrowser from 'expo-web-browser';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WebView } from 'react-native-webview';
+import LoginService from '../services/LoginService';
 
-const LoginModal = ({ visible, platform, onClose, onLoginSuccess }) => {
-    const [isLoggingIn, setIsLoggingIn] = useState(false);
+const RealLoginModal = ({ visible, platform, onClose, onLoginSuccess }) => {
+    const [isLoading, setIsLoading] = useState(true);
+    const [loginStep, setLoginStep] = useState('login'); // 'login', 'verify', 'success'
+    const [currentUrl, setCurrentUrl] = useState('');
+    const webViewRef = useRef(null);
 
-    // Platform-spezifische Login-URLs
-    const getLoginUrl = (platformKey) => {
-        const loginUrls = {
-            youtube: 'https://accounts.google.com/signin',
-            tiktok: 'https://www.tiktok.com/login',
-            instagram: 'https://www.instagram.com/accounts/login/'
+    const getPlatformConfig = (platformKey) => {
+        const configs = {
+            youtube: {
+                name: 'YouTube',
+                color: '#FF0000',
+                icon: '📺',
+                loginUrl: 'https://accounts.google.com/signin?continue=https%3A%2F%2Fwww.youtube.com%2F',
+                personalizedUrl: 'https://m.youtube.com/', // Personalized feed
+                loggedInIndicators: [
+                    '#avatar-btn',
+                    'img[alt*="avatar" i]',
+                    'img[alt*="profilbild" i]',
+                    '[data-test-id="avatar"]'
+                ],
+                successUrls: ['youtube.com/', 'youtube.com/feed']
+            },
+            tiktok: {
+                name: 'TikTok',
+                color: '#000000',
+                icon: '🎵',
+                loginUrl: 'https://www.tiktok.com/login',
+                personalizedUrl: 'https://www.tiktok.com/foryou', // For You feed
+                loggedInIndicators: [
+                    '[data-e2e="profile-icon"]',
+                    '.avatar',
+                    'img[alt*="avatar" i]'
+                ],
+                successUrls: ['tiktok.com/foryou', 'tiktok.com/following']
+            },
+            instagram: {
+                name: 'Instagram',
+                color: '#E4405F',
+                icon: '📸',
+                loginUrl: 'https://www.instagram.com/accounts/login/',
+                personalizedUrl: 'https://www.instagram.com/', // Personal feed
+                loggedInIndicators: [
+                    'svg[aria-label="Home"]',
+                    'img[alt*="profilbild" i]',
+                    '[data-testid="user-avatar"]'
+                ],
+                successUrls: ['instagram.com/']
+            }
         };
-        return loginUrls[platformKey] || '';
+        return configs[platformKey] || null;
     };
 
-    // Login-Status speichern
-    const saveLoginStatus = async (platformKey, loginData) => {
-        try {
-            const loginInfo = {
-                platform: platformKey,
-                isLoggedIn: true,
-                loginTime: new Date().toISOString(),
-                sessionData: loginData || {}
-            };
+    const platformConfig = getPlatformConfig(platform);
 
-            await AsyncStorage.setItem(`login_${platformKey}`, JSON.stringify(loginInfo));
-            console.log(`✅ Login saved for ${platformKey}`);
-            return true;
-        } catch (error) {
-            console.error('Error saving login:', error);
-            return false;
-        }
-    };
-
-    // Browser öffnen und Login handhaben
-    const handleLogin = async () => {
-        if (!platform) return;
-
-        setIsLoggingIn(true);
-        const loginUrl = getLoginUrl(platform);
-
-        try {
-            console.log(`${platform}: Opening browser for login...`);
-
-            // WebBrowser konfigurieren
-            const result = await WebBrowser.openBrowserAsync(loginUrl, {
-                // Browser-Optionen
-                presentationStyle: WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
-                showTitle: true,
-                enableBarCollapsing: false,
-                // iOS-spezifische Optionen
-                controlsColor: getPlatformColor(platform),
-                // Android-spezifische Optionen
-                browserPackage: undefined, // Nutzt Standard-Browser
-            });
-
-            console.log(`${platform}: Browser result:`, result);
-
-            // Prüfe Ergebnis
-            if (result.type === 'cancel') {
-                console.log(`${platform}: Login cancelled by user`);
-                setIsLoggingIn(false);
-                return;
-            }
-
-            if (result.type === 'dismiss') {
-                console.log(`${platform}: Login dismissed`);
-                // Hier nehmen wir an, dass Login erfolgreich war wenn Browser geschlossen wurde
-                await handleLoginSuccess();
-            }
-
-        } catch (error) {
-            console.error(`${platform}: Login error:`, error);
-            Alert.alert(
-                'Login Fehler',
-                'Es gab ein Problem beim Öffnen des Browsers. Bitte versuche es erneut.',
-                [{ text: 'OK' }]
-            );
-        }
-
-        setIsLoggingIn(false);
-    };
-
-    // Login-Erfolg handhaben
-    const handleLoginSuccess = async () => {
-        console.log(`${platform}: Processing login success...`);
-
-        // Login-Status speichern
-        const saveSuccess = await saveLoginStatus(platform, {
-            loginMethod: 'webBrowser',
-            timestamp: Date.now()
-        });
-
-        if (saveSuccess) {
-            Alert.alert(
-                '✅ Anmeldung erfolgreich',
-                `Du bist jetzt bei ${getPlatformName(platform)} angemeldet!\n\nDu kannst jetzt den Browser schließen.`,
-                [
-                    {
-                        text: 'OK',
-                        onPress: () => {
-                            onLoginSuccess(platform);
-                            onClose();
+    // JavaScript für Login-Erkennung injizieren
+    const getLoginDetectionScript = () => {
+        return `
+            (function() {
+                let loginCheckInterval;
+                let urlCheckInterval;
+                
+                // Login-Indikatoren für ${platform}
+                const indicators = ${JSON.stringify(platformConfig.loggedInIndicators)};
+                
+                function checkForLogin() {
+                    // 1. DOM-Elemente prüfen
+                    for (let selector of indicators) {
+                        const element = document.querySelector(selector);
+                        if (element) {
+                            console.log('✅ Login indicator found:', selector);
+                            clearInterval(loginCheckInterval);
+                            clearInterval(urlCheckInterval);
+                            
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'LOGIN_SUCCESS',
+                                platform: '${platform}',
+                                method: 'dom_indicator',
+                                indicator: selector,
+                                url: window.location.href
+                            }));
+                            return true;
                         }
                     }
-                ]
-            );
+                    return false;
+                }
+                
+                function checkUrl() {
+                    const currentUrl = window.location.href;
+                    const successUrls = ${JSON.stringify(platformConfig.successUrls)};
+                    
+                    // Prüfe ob URL auf Login-Erfolg hindeutet
+                    const isSuccess = successUrls.some(url => 
+                        currentUrl.includes(url) && 
+                        !currentUrl.includes('login') && 
+                        !currentUrl.includes('signin')
+                    );
+                    
+                    if (isSuccess) {
+                        console.log('✅ Success URL detected:', currentUrl);
+                        
+                        // Zusätzlich DOM prüfen für Bestätigung
+                        setTimeout(() => {
+                            if (checkForLogin()) {
+                                return; // Login already detected via DOM
+                            }
+                            
+                            // URL-basierte Erkennung als Fallback
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'LOGIN_SUCCESS',
+                                platform: '${platform}',
+                                method: 'url_pattern',
+                                url: currentUrl
+                            }));
+                        }, 2000);
+                    }
+                }
+                
+                // Starte regelmäßige Checks
+                loginCheckInterval = setInterval(checkForLogin, 2000);
+                urlCheckInterval = setInterval(checkUrl, 1000);
+                
+                // Initial check nach dem Laden
+                setTimeout(() => {
+                    checkForLogin();
+                    checkUrl();
+                }, 3000);
+                
+                console.log('🔍 Login detection started for ${platform}');
+            })();
+        `;
+    };
+
+    // URL-Änderungen überwachen
+    const handleNavigationStateChange = (navState) => {
+        setCurrentUrl(navState.url);
+
+        // Automatische Step-Erkennung
+        if (navState.url.includes('accounts.google.com') ||
+            navState.url.includes('login') ||
+            navState.url.includes('signin')) {
+            setLoginStep('login');
+        } else if (platformConfig.successUrls.some(url => navState.url.includes(url))) {
+            setLoginStep('verify');
         }
     };
 
-    // Alternative: Manuell als "erfolgreich" markieren
+    // WebView-Messages verarbeiten
+    const handleWebViewMessage = (event) => {
+        try {
+            const message = JSON.parse(event.nativeEvent.data);
+
+            if (message.type === 'LOGIN_SUCCESS') {
+                console.log(`🎉 Login detected for ${platform}:`, message);
+                handleLoginSuccess(message);
+            }
+        } catch (error) {
+            console.log('WebView message error:', error);
+        }
+    };
+
+    // Login als erfolgreich markieren
+    const handleLoginSuccess = async (detectionData) => {
+        setLoginStep('success');
+
+        try {
+            // Echten Login-Status speichern
+            const success = await LoginService.setLoginStatus(platform, true, {
+                loginMethod: 'realWebView',
+                timestamp: Date.now(),
+                detectionMethod: detectionData.method,
+                detectedUrl: detectionData.url,
+                indicator: detectionData.indicator,
+                userAgent: 'GoonScroll/1.0.0 RealLogin'
+            });
+
+            if (success) {
+                // Kurz warten und dann direkt zur App
+                setTimeout(() => {
+                    onLoginSuccess(platform);
+                    onClose();
+                }, 1500); // Kurze Verzögerung für Success-Overlay
+            }
+        } catch (error) {
+            console.error('Error saving real login:', error);
+            Alert.alert('Fehler', 'Login konnte nicht gespeichert werden');
+        }
+    };
+
+    // Manueller Login-Erfolg
     const handleManualSuccess = () => {
-        Alert.alert(
-            'Login abgeschlossen?',
-            `Hast du dich erfolgreich bei ${getPlatformName(platform)} angemeldet?`,
-            [
-                { text: 'Nein', style: 'cancel' },
-                {
-                    text: 'Ja, bin angemeldet',
-                    onPress: handleLoginSuccess
-                }
-            ]
-        );
+        // Direkt ohne Alert zur Success-Verarbeitung
+        handleLoginSuccess({
+            method: 'manual_confirmation',
+            url: currentUrl,
+            platform: platform
+        });
     };
 
-    // Helper functions
-    const getPlatformName = (platformKey) => {
-        const names = {
-            youtube: 'YouTube',
-            tiktok: 'TikTok',
-            instagram: 'Instagram'
-        };
-        return names[platformKey] || platformKey;
+    // Zur personalisierten Seite navigieren
+    const goToPersonalizedFeed = () => {
+        if (webViewRef.current) {
+            webViewRef.current.postMessage('navigate_to_feed');
+
+            // Navigation via injected JavaScript
+            webViewRef.current.injectJavaScript(`
+                window.location.href = '${platformConfig.personalizedUrl}';
+            `);
+        }
     };
 
-    const getPlatformColor = (platformKey) => {
-        const colors = {
-            youtube: '#FF0000',
-            tiktok: '#000000',
-            instagram: '#E4405F'
-        };
-        return colors[platformKey] || '#3B82F6';
+    if (!visible || !platformConfig) return null;
+
+    const getStepInfo = () => {
+        switch (loginStep) {
+            case 'login':
+                return {
+                    title: 'Anmelden',
+                    subtitle: 'Melde dich mit deinem Account an',
+                    color: platformConfig.color
+                };
+            case 'verify':
+                return {
+                    title: 'Überprüfen...',
+                    subtitle: 'Login wird automatisch erkannt',
+                    color: '#F59E0B'
+                };
+            case 'success':
+                return {
+                    title: 'Erfolgreich!',
+                    subtitle: 'Personalisierter Feed aktiv',
+                    color: '#10B981'
+                };
+            default:
+                return {
+                    title: platformConfig.name,
+                    subtitle: 'Echter Login',
+                    color: platformConfig.color
+                };
+        }
     };
 
-    if (!visible) return null;
-
-    const platformName = getPlatformName(platform);
-    const platformColor = getPlatformColor(platform);
+    const stepInfo = getStepInfo();
 
     return (
         <Modal
             visible={visible}
             animationType="slide"
-            presentationStyle="formSheet"
-            onRequestClose={onClose}
+            presentationStyle="fullScreen"
         >
             <SafeAreaView style={styles.container}>
                 {/* Header */}
-                <View style={[styles.header, { backgroundColor: platformColor }]}>
+                <View style={[styles.header, { backgroundColor: stepInfo.color }]}>
                     <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-                        <Text style={styles.closeButtonText}>×</Text>
+                        <Text style={styles.closeButtonText}>✕</Text>
                     </TouchableOpacity>
 
                     <View style={styles.headerContent}>
-                        <Text style={styles.headerTitle}>
-                            Bei {platformName} anmelden
-                        </Text>
-                        <Text style={styles.headerSubtitle}>
-                            Login im externen Browser
-                        </Text>
+                        <Text style={styles.headerTitle}>{stepInfo.title}</Text>
+                        <Text style={styles.headerSubtitle}>{stepInfo.subtitle}</Text>
                     </View>
+
+                    <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={loginStep === 'verify' ? handleManualSuccess : goToPersonalizedFeed}
+                    >
+                        <Text style={styles.actionButtonText}>
+                            {loginStep === 'verify' ? 'Bestätigen' : 'Feed'}
+                        </Text>
+                    </TouchableOpacity>
                 </View>
 
-                {/* Content */}
-                <View style={styles.content}>
-                    {/* Icon */}
-                    <View style={[styles.iconContainer, { backgroundColor: platformColor }]}>
-                        <Text style={styles.iconText}>
-                            {platform === 'youtube' ? '📺' : platform === 'tiktok' ? '🎵' : '📸'}
-                        </Text>
-                    </View>
-
-                    {/* Info */}
-                    <Text style={styles.infoTitle}>Sicherer Login</Text>
-                    <Text style={styles.infoText}>
-                        Der Login öffnet sich in deinem Standard-Browser für maximale Sicherheit.
-                        Nach der Anmeldung kehre einfach zur App zurück.
+                {/* URL Bar */}
+                <View style={styles.urlBar}>
+                    <Text style={styles.urlText} numberOfLines={1}>
+                        {currentUrl || platformConfig.loginUrl}
                     </Text>
-
-                    {/* Login Button */}
-                    <TouchableOpacity
-                        style={[styles.loginButton, { backgroundColor: platformColor }]}
-                        onPress={handleLogin}
-                        disabled={isLoggingIn}
-                    >
-                        {isLoggingIn ? (
-                            <View style={styles.buttonContent}>
-                                <ActivityIndicator size="small" color="#FFFFFF" />
-                                <Text style={styles.loginButtonText}>Browser wird geöffnet...</Text>
-                            </View>
-                        ) : (
-                            <Text style={styles.loginButtonText}>
-                                🌐 Bei {platformName} anmelden
-                            </Text>
-                        )}
-                    </TouchableOpacity>
-
-                    {/* Manual Success Button */}
-                    <TouchableOpacity
-                        style={styles.manualButton}
-                        onPress={handleManualSuccess}
-                    >
-                        <Text style={styles.manualButtonText}>
-                            ✅ Ich bin bereits angemeldet
-                        </Text>
-                    </TouchableOpacity>
-
-                    {/* Instructions */}
-                    <View style={styles.instructionsContainer}>
-                        <Text style={styles.instructionsTitle}>So funktioniert's:</Text>
-                        <Text style={styles.instructionsText}>
-                            1. Browser öffnet {platformName} Login-Seite{'\n'}
-                            2. Melde dich normal an{'\n'}
-                            3. Kehre zur App zurück{'\n'}
-                            4. Markiere Login als erfolgreich
-                        </Text>
-                    </View>
                 </View>
+
+                {/* WebView */}
+                <WebView
+                    ref={webViewRef}
+                    source={{ uri: platformConfig.loginUrl }}
+                    style={styles.webView}
+                    onNavigationStateChange={handleNavigationStateChange}
+                    onMessage={handleWebViewMessage}
+                    injectedJavaScript={getLoginDetectionScript()}
+                    onLoadStart={() => { }} // Kein Loading setzen
+                    onLoadEnd={() => { }} // Kein Loading setzen
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
+                    startInLoadingState={false} // Kein Loading anzeigen
+                    scalesPageToFit={true}
+                    allowsInlineMediaPlayback={true}
+                    // KRITISCH: Cookies aktivieren für echten Login!
+                    sharedCookiesEnabled={true}
+                    thirdPartyCookiesEnabled={true}
+                    // User Agent für Desktop-ähnliche Erfahrung
+                    userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 GoonScroll/1.0"
+                />
+
+                {/* Success Overlay - nur bei erfolgreichem Login */}
+                {loginStep === 'success' && (
+                    <View style={styles.successOverlay}>
+                        <View style={styles.successCard}>
+                            <Text style={styles.successIcon}>🎯</Text>
+                            <Text style={styles.successTitle}>Algorithmus aktiv!</Text>
+                            <Text style={styles.successText}>
+                                Dein personalisierter {platformConfig.name} Feed wird jetzt in der App angezeigt.
+                            </Text>
+                        </View>
+                    </View>
+                )}
             </SafeAreaView>
         </Modal>
     );
@@ -246,13 +334,13 @@ const LoginModal = ({ visible, platform, onClose, onLoginSuccess }) => {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#000',
     },
     header: {
-        paddingHorizontal: 16,
-        paddingVertical: 16,
         flexDirection: 'row',
         alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
     },
     closeButton: {
         width: 32,
@@ -261,103 +349,98 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255, 255, 255, 0.2)',
         justifyContent: 'center',
         alignItems: 'center',
-        marginRight: 12,
     },
     closeButtonText: {
         color: '#FFFFFF',
-        fontSize: 20,
+        fontSize: 16,
         fontWeight: 'bold',
     },
     headerContent: {
         flex: 1,
+        marginLeft: 12,
     },
     headerTitle: {
+        color: '#FFFFFF',
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#FFFFFF',
-        marginBottom: 4,
     },
     headerSubtitle: {
+        color: 'rgba(255, 255, 255, 0.8)',
         fontSize: 14,
-        color: 'rgba(255, 255, 255, 0.9)',
     },
-    content: {
+    actionButton: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        borderRadius: 6,
+    },
+    actionButtonText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    urlBar: {
+        backgroundColor: '#F3F4F6',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+    },
+    urlText: {
+        fontSize: 12,
+        color: '#6B7280',
+        fontFamily: 'monospace',
+    },
+    webView: {
         flex: 1,
-        padding: 24,
-        alignItems: 'center',
     },
-    iconContainer: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
+    loadingOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 24,
     },
-    iconText: {
-        fontSize: 32,
+    loadingText: {
+        marginTop: 16,
+        fontSize: 16,
+        color: '#6B7280',
+        fontWeight: '500',
     },
-    infoTitle: {
-        fontSize: 24,
+    successOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(16, 185, 129, 0.9)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    successCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 24,
+        alignItems: 'center',
+        marginHorizontal: 32,
+    },
+    successIcon: {
+        fontSize: 48,
+        marginBottom: 16,
+    },
+    successTitle: {
+        fontSize: 20,
         fontWeight: 'bold',
         color: '#111827',
         marginBottom: 8,
-        textAlign: 'center',
     },
-    infoText: {
+    successText: {
         fontSize: 16,
         color: '#6B7280',
         textAlign: 'center',
-        lineHeight: 24,
-        marginBottom: 32,
-    },
-    loginButton: {
-        width: '100%',
-        paddingVertical: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    buttonContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    loginButtonText: {
-        color: '#FFFFFF',
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    manualButton: {
-        width: '100%',
-        paddingVertical: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-        backgroundColor: '#F3F4F6',
-        marginBottom: 32,
-    },
-    manualButtonText: {
-        color: '#374151',
-        fontSize: 14,
-        fontWeight: '500',
-    },
-    instructionsContainer: {
-        backgroundColor: '#F9FAFB',
-        padding: 16,
-        borderRadius: 8,
-        width: '100%',
-    },
-    instructionsTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#111827',
-        marginBottom: 8,
-    },
-    instructionsText: {
-        fontSize: 14,
-        color: '#6B7280',
-        lineHeight: 20,
+        lineHeight: 22,
     },
 });
 
-export default LoginModal;
+export default RealLoginModal;

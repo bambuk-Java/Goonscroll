@@ -10,10 +10,16 @@ import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import TrackingService from './TrackingService';
+import LoginService from '../services/LoginService';
 
 const PowerModeScreen = ({ navigation }) => {
     const [orientation, setOrientation] = useState('portrait');
     const [isTracking, setIsTracking] = useState(false);
+    const [loginStates, setLoginStates] = useState({
+        youtube: false,
+        tiktok: false,
+        instagram: false
+    });
 
     // WebView refs
     const webViewRefs = {
@@ -22,18 +28,20 @@ const PowerModeScreen = ({ navigation }) => {
         instagram: useRef(null)
     };
 
-    // Platform configuration
+    // Platform configuration mit personalisierten URLs
     const platforms = [
         {
             key: 'youtube',
             name: 'YouTube',
-            url: 'https://m.youtube.com/shorts',
+            // PERSONALISIERTE Shorts URL für angemeldeten Account
+            url: 'https://m.youtube.com/feed/shorts',
             color: '#FF0000',
             icon: '📺'
         },
         {
             key: 'tiktok',
             name: 'TikTok',
+            // PERSONALISIERTE For You Page für angemeldeten Account
             url: 'https://www.tiktok.com/foryou',
             color: '#000000',
             icon: '🎵'
@@ -41,6 +49,7 @@ const PowerModeScreen = ({ navigation }) => {
         {
             key: 'instagram',
             name: 'Instagram',
+            // PERSONALISIERTE Reels für angemeldeten Account
             url: 'https://www.instagram.com/reels/',
             color: '#E4405F',
             icon: '📸'
@@ -53,11 +62,15 @@ const PowerModeScreen = ({ navigation }) => {
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
             setOrientation('landscape');
 
+            // Load login states
+            const states = await LoginService.getAllLoginStates();
+            setLoginStates(states);
+
             // Start PowerMode tracking
             await TrackingService.startPowerModeSession();
             setIsTracking(true);
 
-            console.log('🚀 PowerMode: Clean Minimal Mode');
+            console.log('🚀 PowerMode: Personalisierte Feeds aktiv', states);
         };
 
         initializePowerMode();
@@ -81,33 +94,63 @@ const PowerModeScreen = ({ navigation }) => {
         navigation.goBack();
     };
 
-    // AGGRESSIVE Multi-Video JavaScript - ALLE Videos gleichzeitig!
+    // Personalisierte WebView-Source mit Cookies
+    const getPersonalizedWebViewSource = (platform) => {
+        return {
+            uri: platform.url,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 GoonScroll/1.0',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
+                'Cache-Control': 'max-age=3600'
+            }
+        };
+    };
+
+    // AGGRESSIVE Multi-Video JavaScript für simultane Wiedergabe
     const getMultiVideoScript = (platform) => {
         return `
             (function() {
-                console.log('${platform}: 🔥 MULTI-VIDEO MODE - Force simultaneous playback');
+                console.log('${platform.key}: 🔥 PERSONALIZED MULTI-VIDEO MODE');
                 
                 let videoCount = 0;
                 let playbackForced = false;
+                
+                // Check if logged in
+                function checkLoginStatus() {
+                    const loginIndicators = [
+                        '#avatar-btn', 'img[alt*="avatar" i]', 'img[alt*="profilbild" i]',
+                        '[data-e2e="profile-icon"]', '.avatar', 'svg[aria-label="Home"]'
+                    ];
+                    
+                    for (let selector of loginIndicators) {
+                        if (document.querySelector(selector)) {
+                            console.log('${platform.key}: ✅ Logged in - personalized content active');
+                            return true;
+                        }
+                    }
+                    console.log('${platform.key}: ⚠️ Not logged in - public content');
+                    return false;
+                }
                 
                 // AGGRESSIVE Video-Management für simultane Wiedergabe
                 function forceSimultaneousPlayback() {
                     const videos = document.querySelectorAll('video');
                     videoCount = videos.length;
                     
-                    console.log('${platform}: Found', videoCount, 'videos - forcing simultaneous play');
+                    console.log('${platform.key}: Found', videoCount, 'videos - forcing simultaneous play');
                     
                     videos.forEach((video, index) => {
                         // KOMPLETT Pause blockieren
                         const originalPause = video.pause;
                         video.pause = function() {
-                            console.log('${platform}: 🚫 PAUSE BLOCKED on video', index);
+                            console.log('${platform.key}: 🚫 PAUSE BLOCKED on video', index);
                             return Promise.resolve();
                         };
                         
                         // ALLE Pause-Events abfangen und blockieren
                         video.addEventListener('pause', function(e) {
-                            console.log('${platform}: 🛑 Pause event intercepted on video', index);
+                            console.log('${platform.key}: 🛑 Pause event intercepted on video', index);
                             e.preventDefault();
                             e.stopPropagation();
                             e.stopImmediatePropagation();
@@ -115,19 +158,19 @@ const PowerModeScreen = ({ navigation }) => {
                             // Sofort wieder abspielen
                             setTimeout(() => {
                                 if (video.paused) {
-                                    video.play().catch(err => console.log('${platform}: Force play failed:', err));
+                                    video.play().catch(err => console.log('${platform.key}: Force play failed:', err));
                                 }
                             }, 10);
                             
                             return false;
                         }, { capture: true, passive: false });
                         
-                        // Auto-play Events blockieren die pausieren könnten
+                        // Auto-play Events
                         ['loadstart', 'loadeddata', 'canplay', 'canplaythrough'].forEach(eventType => {
                             video.addEventListener(eventType, function() {
                                 if (video.paused) {
-                                    console.log('${platform}: Auto-starting video', index, 'on', eventType);
-                                    video.play().catch(err => console.log('${platform}: Auto-play failed:', err));
+                                    console.log('${platform.key}: Auto-starting video', index, 'on', eventType);
+                                    video.play().catch(err => console.log('${platform.key}: Auto-play failed:', err));
                                 }
                             });
                         });
@@ -145,8 +188,8 @@ const PowerModeScreen = ({ navigation }) => {
                             const observer = new IntersectionObserver((entries) => {
                                 entries.forEach(entry => {
                                     if (entry.isIntersecting && entry.target.paused) {
-                                        console.log('${platform}: Video', index, 'visible - forcing play');
-                                        entry.target.play().catch(err => console.log('${platform}: Observer play failed:', err));
+                                        console.log('${platform.key}: Video', index, 'visible - forcing play');
+                                        entry.target.play().catch(err => console.log('${platform.key}: Observer play failed:', err));
                                     }
                                 });
                             }, { threshold: 0.1 });
@@ -156,126 +199,43 @@ const PowerModeScreen = ({ navigation }) => {
                         
                         // Sofort versuchen abzuspielen
                         if (video.paused) {
-                            console.log('${platform}: Initial play attempt on video', index);
-                            video.play().catch(err => console.log('${platform}: Initial play failed:', err));
+                            console.log('${platform.key}: Initial play attempt on video', index);
+                            video.play().catch(err => console.log('${platform.key}: Initial play failed:', err));
                         }
                     });
                     
                     playbackForced = true;
-                    console.log('${platform}: ✅ Forced simultaneous playback on', videoCount, 'videos');
+                    console.log('${platform.key}: ✅ Personalized videos playing simultaneously');
                 }
                 
-                // AGGRESSIVE Browser-Policy Override
-                function overrideBrowserPolicies() {
-                    // Override Autoplay Policy
-                    if (navigator.mediaSession) {
-                        navigator.mediaSession.setActionHandler('pause', function() {
-                            console.log('${platform}: 🚫 MediaSession pause blocked');
-                            // Do nothing - block pause
-                        });
-                        
-                        navigator.mediaSession.setActionHandler('play', function() {
-                            console.log('${platform}: 🎵 MediaSession play requested');
-                            document.querySelectorAll('video').forEach(video => {
-                                if (video.paused) {
-                                    video.play().catch(err => console.log('${platform}: MediaSession play failed:', err));
-                                }
-                            });
-                        });
+                // Login-Status prüfen und anzeigen
+                setTimeout(() => {
+                    const isLoggedIn = checkLoginStatus();
+                    if (isLoggedIn) {
+                        console.log('${platform.key}: 🎯 PERSONALIZED CONTENT ACTIVE');
                     }
-                    
-                    // Override document visibility change (prevents auto-pause)
-                    Object.defineProperty(document, 'hidden', {
-                        value: false,
-                        writable: false
-                    });
-                    
-                    Object.defineProperty(document, 'visibilityState', {
-                        value: 'visible',
-                        writable: false
-                    });
-                    
-                    // Block visibilitychange events
-                    document.addEventListener('visibilitychange', function(e) {
-                        console.log('${platform}: 🚫 Visibility change blocked');
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.stopImmediatePropagation();
-                    }, { capture: true, passive: false });
-                    
-                    console.log('${platform}: 🔧 Browser policies overridden');
-                }
-                
-                // Kontinuierliche Playback-Überwachung
-                function continuousPlaybackCheck() {
-                    const videos = document.querySelectorAll('video');
-                    let pausedCount = 0;
-                    
-                    videos.forEach((video, index) => {
-                        if (video.paused) {
-                            pausedCount++;
-                            console.log('${platform}: 🔄 Restarting paused video', index);
-                            video.play().catch(err => console.log('${platform}: Restart failed:', err));
-                        }
-                    });
-                    
-                    if (pausedCount > 0) {
-                        console.log('${platform}: ⚡ Restarted', pausedCount, 'paused videos');
-                    }
-                }
-                
-                // UI-Buttons verstecken (sanft)
-                function hideUIButtons() {
-                    const uiSelectors = [
-                        '[data-testid*="like"]', '[data-testid*="comment"]', '[data-testid*="share"]',
-                        '[aria-label*="like" i]', '[aria-label*="comment" i]', '[aria-label*="share" i]',
-                        '.like-button', '.comment-button', '.share-button',
-                        '[class*="ActionButton"]', '[class*="caption"]:not(video)',
-                        '[class*="username"]:not(video)', 'nav:not([class*="video"])'
-                    ];
-                    
-                    uiSelectors.forEach(selector => {
-                        try {
-                            const elements = document.querySelectorAll(selector);
-                            elements.forEach(el => {
-                                if (el.tagName !== 'VIDEO' && !el.querySelector('video')) {
-                                    el.style.visibility = 'hidden';
-                                    el.style.opacity = '0';
-                                    el.style.pointerEvents = 'none';
-                                }
-                            });
-                        } catch (e) { /* ignore */ }
-                    });
-                }
+                }, 2000);
                 
                 // ALLES starten
-                overrideBrowserPolicies();
                 forceSimultaneousPlayback();
-                hideUIButtons();
                 
                 // Aggressive kontinuierliche Überwachung
                 setInterval(() => {
                     forceSimultaneousPlayback();
-                    continuousPlaybackCheck();
-                }, 2000); // Alle 2 Sekunden prüfen
-                
-                // Sanftere UI-Updates
-                setInterval(() => {
-                    hideUIButtons();
-                }, 10000);
+                }, 2000);
                 
                 // Bei neuen Videos (z.B. beim Scrollen)
                 const observer = new MutationObserver(() => {
                     const currentVideoCount = document.querySelectorAll('video').length;
                     if (currentVideoCount > videoCount) {
-                        console.log('${platform}: 🆕 New videos detected, forcing playback');
+                        console.log('${platform.key}: 🆕 New personalized videos detected');
                         forceSimultaneousPlayback();
                     }
                 });
                 
                 observer.observe(document.body, { childList: true, subtree: true });
                 
-                console.log('${platform}: 🔥 MULTI-VIDEO MODE ACTIVE - All videos should play simultaneously');
+                console.log('${platform.key}: 🔥 PERSONALIZED MULTI-VIDEO MODE ACTIVE');
                 return true;
             })();
         `;
@@ -288,7 +248,7 @@ const PowerModeScreen = ({ navigation }) => {
                 <Text style={styles.orientationIcon}>🔄</Text>
                 <Text style={styles.orientationTitle}>PowerMode</Text>
                 <Text style={styles.orientationText}>
-                    Drehe dein Gerät ins Querformat für drei saubere Video-Streams
+                    Drehe dein Gerät ins Querformat für drei personalisierte Video-Streams
                 </Text>
                 <TouchableOpacity style={styles.exitButton} onPress={handleExit}>
                     <Text style={styles.exitButtonText}>← Zurück</Text>
@@ -297,23 +257,36 @@ const PowerModeScreen = ({ navigation }) => {
         );
     }
 
-    // PowerMode mit Zurück-Button aber ohne Video-UI
+    // PowerMode mit personalisierten Feeds
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar hidden />
 
-            {/* Zurück-Button oben links - bleibt da! */}
+            {/* Zurück-Button mit Login-Info */}
             <TouchableOpacity style={styles.floatingExitButton} onPress={handleExit}>
                 <Text style={styles.floatingExitText}>←</Text>
             </TouchableOpacity>
 
-            {/* Drei Videos - UI-Elemente in den Videos werden entfernt */}
+            {/* Login-Status-Anzeige */}
+            <View style={styles.loginStatusBanner}>
+                {platforms.map((platform) => (
+                    <View key={platform.key} style={styles.loginStatusItem}>
+                        <Text style={platform.icon}>{platform.icon}</Text>
+                        <View style={[
+                            styles.loginStatusDot,
+                            { backgroundColor: loginStates[platform.key] ? '#10B981' : '#EF4444' }
+                        ]} />
+                    </View>
+                ))}
+            </View>
+
+            {/* Drei personalisierte Videos */}
             <View style={styles.videosContainer}>
                 {platforms.map((platform) => (
                     <View key={platform.key} style={styles.videoBox}>
                         <WebView
                             ref={webViewRefs[platform.key]}
-                            source={{ uri: platform.url }}
+                            source={getPersonalizedWebViewSource(platform)}
                             style={styles.cleanWebView}
                             javaScriptEnabled={true}
                             allowsInlineMediaPlayback={true}
@@ -323,18 +296,30 @@ const PowerModeScreen = ({ navigation }) => {
                             showsVerticalScrollIndicator={false}
                             bounces={true}
                             scrollEnabled={true}
+                            // KRITISCH: Cookies für personalisierte Feeds
+                            sharedCookiesEnabled={true}
+                            thirdPartyCookiesEnabled={true}
+                            cacheEnabled={true}
+                            incognito={false}
 
-                            // AGGRESSIVE Multi-Video JavaScript - simultane Wiedergabe + UI-Cleaning
-                            injectedJavaScript={getMultiVideoScript(platform.key)}
+                            // AGGRESSIVE Multi-Video JavaScript + Personalisierung
+                            injectedJavaScript={getMultiVideoScript(platform)}
 
                             onLoadEnd={() => {
-                                console.log(`${platform.key}: Clean mode loaded - video UI cleaned`);
+                                console.log(`${platform.key}: Personalized PowerMode loaded`);
                             }}
 
                             onError={(error) => {
                                 console.log(`${platform.key}: Error -`, error.nativeEvent.description);
                             }}
                         />
+
+                        {/* Platform-Label */}
+                        <View style={[styles.platformLabel, { backgroundColor: platform.color }]}>
+                            <Text style={styles.platformLabelText}>
+                                {platform.icon} {loginStates[platform.key] ? '🎯' : '🔓'}
+                            </Text>
+                        </View>
                     </View>
                 ))}
             </View>
@@ -385,7 +370,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
 
-    // Zurück-Button oben links - bleibt sichtbar
+    // Zurück-Button
     floatingExitButton: {
         position: 'absolute',
         top: 16,
@@ -410,6 +395,29 @@ const styles = StyleSheet.create({
         lineHeight: 20,
     },
 
+    // Login-Status-Banner
+    loginStatusBanner: {
+        position: 'absolute',
+        top: 16,
+        right: 16,
+        flexDirection: 'row',
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        borderRadius: 12,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        zIndex: 1000,
+        gap: 8,
+    },
+    loginStatusItem: {
+        alignItems: 'center',
+        gap: 2,
+    },
+    loginStatusDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+    },
+
     // Videos nehmen den Rest des Screens
     videosContainer: {
         flex: 1,
@@ -421,10 +429,25 @@ const styles = StyleSheet.create({
         backgroundColor: '#000000',
         borderRightWidth: 1,
         borderRightColor: '#111111',
+        position: 'relative',
     },
     cleanWebView: {
         flex: 1,
         backgroundColor: '#000000',
+    },
+    platformLabel: {
+        position: 'absolute',
+        bottom: 8,
+        left: 8,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        opacity: 0.8,
+    },
+    platformLabelText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: 'bold',
     },
 });
 

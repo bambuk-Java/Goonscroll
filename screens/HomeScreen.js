@@ -15,13 +15,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { PanGestureHandler, GestureHandlerRootView, State } from 'react-native-gesture-handler';
 import TrackingService from './TrackingService';
+import LoginService from '../services/LoginService';
 
 const { width, height } = Dimensions.get('window');
 
 const HomeScreen = ({ navigation }) => {
     const [activeTab, setActiveTab] = useState('youtube');
     const [isLoading, setIsLoading] = useState(false);
-    const [webViewKey, setWebViewKey] = useState(0); // For forcing WebView refresh
+    const [webViewKey, setWebViewKey] = useState(0);
+    const [loginStates, setLoginStates] = useState({
+        youtube: false,
+        tiktok: false,
+        instagram: false
+    });
 
     const webViewRefs = {
         youtube: useRef(null),
@@ -33,9 +39,35 @@ const HomeScreen = ({ navigation }) => {
     const platformOrder = ['youtube', 'tiktok', 'instagram'];
     const currentIndex = platformOrder.indexOf(activeTab);
 
+    // Platform configurations with personalized URLs
+    const platforms = {
+        youtube: {
+            name: 'YouTube',
+            color: '#FF0000',
+            url: 'https://m.youtube.com/feed/shorts', // Personalized YouTube Shorts feed
+            icon: '📺',
+            personalizedFeatures: 'Deine Shorts, Subscriptions, Empfehlungen'
+        },
+        tiktok: {
+            name: 'TikTok',
+            color: '#000000',
+            url: 'https://www.tiktok.com/foryou', // For You personalized page
+            icon: '🎵',
+            personalizedFeatures: 'For You, Following, Likes'
+        },
+        instagram: {
+            name: 'Instagram',
+            color: '#E4405F',
+            url: 'https://www.instagram.com/', // Personal feed
+            icon: '📸',
+            personalizedFeatures: 'Feed, Stories, Reels, Explore'
+        }
+    };
+
     // Start tracking when component mounts
     useEffect(() => {
         TrackingService.startSession(activeTab);
+        loadLoginStates();
 
         // Handle app state changes
         const handleAppStateChange = (nextAppState) => {
@@ -43,17 +75,34 @@ const HomeScreen = ({ navigation }) => {
                 TrackingService.endSession();
             } else if (nextAppState === 'active') {
                 TrackingService.startSession(activeTab);
+                loadLoginStates(); // Refresh login states when app becomes active
             }
         };
 
         const subscription = AppState.addEventListener('change', handleAppStateChange);
 
+        // Login state listener
+        const removeLoginListener = LoginService.addListener((newStates) => {
+            setLoginStates(newStates);
+        });
+
         // Cleanup
         return () => {
             TrackingService.endSession();
             subscription?.remove();
+            removeLoginListener();
         };
     }, []);
+
+    // Load login states
+    const loadLoginStates = async () => {
+        try {
+            const states = await LoginService.getAllLoginStates();
+            setLoginStates(states);
+        } catch (error) {
+            console.error('Error loading login states:', error);
+        }
+    };
 
     // Track platform switches
     useEffect(() => {
@@ -62,38 +111,22 @@ const HomeScreen = ({ navigation }) => {
         }
     }, [activeTab]);
 
-    // Platform configurations
-    const platforms = {
-        youtube: {
-            name: 'YouTube',
-            color: '#FF0000',
-            url: 'https://m.youtube.com/playlist?list=PLrAXtmRdnEQy8VtkaWvaJnCMjj_ZsDCiI', // YouTube Shorts playlist
-            icon: '📺'
-        },
-        tiktok: {
-            name: 'TikTok',
-            color: '#000000',
-            url: 'https://www.tiktok.com/foryou',
-            icon: '🎵'
-        },
-        instagram: {
-            name: 'Instagram',
-            color: '#E4405F',
-            url: 'https://www.instagram.com/reels/',
-            icon: '📸'
-        }
+    // Get personalized WebView source with cookies
+    const getPersonalizedWebViewSource = (platform) => {
+        return {
+            uri: platforms[platform].url,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 GoonScroll/1.0',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'de-DE,de;q=0.9,en;q=0.8',
+                'Cache-Control': 'no-cache'
+            }
+        };
     };
 
     const handleTabSwitch = (tab) => {
         if (tab === activeTab) return;
-
-        setIsLoading(true);
         setActiveTab(tab);
-
-        // Simulate loading time
-        setTimeout(() => {
-            setIsLoading(false);
-        }, 800);
     };
 
     // Handle swipe gestures
@@ -122,8 +155,10 @@ const HomeScreen = ({ navigation }) => {
     const handleShare = async () => {
         try {
             const currentPlatform = platforms[activeTab];
+            const isLoggedIn = loginStates[activeTab];
+
             await Share.share({
-                message: `Schau dir das auf ${currentPlatform.name} an! - GoonScroll App`,
+                message: `Schau dir ${isLoggedIn ? 'meinen personalisierten' : 'diesen'} ${currentPlatform.name} Feed an! - GoonScroll App`,
                 url: currentPlatform.url
             });
 
@@ -141,7 +176,27 @@ const HomeScreen = ({ navigation }) => {
         }
     };
 
-    // In deiner HomeScreen.js - ersetze die navigateToScreen Funktion mit dieser:
+    // Check if login is expired and handle accordingly
+    const handleLoginExpired = async (platform) => {
+        try {
+            await LoginService.logout(platform);
+            await loadLoginStates();
+
+            Alert.alert(
+                'Login abgelaufen',
+                `Dein ${platforms[platform].name} Login ist abgelaufen. Möchtest du dich neu anmelden für personalisierten Content?`,
+                [
+                    { text: 'Später', style: 'cancel' },
+                    {
+                        text: 'Neu anmelden',
+                        onPress: () => navigation.navigate('Onboarding')
+                    }
+                ]
+            );
+        } catch (error) {
+            console.error('Error handling login expiry:', error);
+        }
+    };
 
     const navigateToScreen = (screenName) => {
         if (screenName === 'PowerMode') {
@@ -159,12 +214,56 @@ const HomeScreen = ({ navigation }) => {
         }
     };
 
-    const webViewSource = {
-        uri: platforms[activeTab].url,
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
-        }
+    // Login Status Indicator Component
+    const LoginStatusIndicator = () => {
+        const currentPlatformLoggedIn = loginStates[activeTab];
+
+        return (
+            <View style={styles.loginStatusContainer}>
+                <View style={[
+                    styles.loginStatusDot,
+                    { backgroundColor: currentPlatformLoggedIn ? '#10B981' : '#EF4444' }
+                ]} />
+                <Text style={styles.loginStatusText}>
+                    {currentPlatformLoggedIn ? '🎯 Personalisiert' : '🔓 Öffentlich'}
+                </Text>
+                {!currentPlatformLoggedIn && (
+                    <TouchableOpacity
+                        style={styles.loginPrompt}
+                        onPress={() => navigation.navigate('Onboarding')}
+                    >
+                        <Text style={styles.loginPromptText}>Anmelden</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+        );
     };
+
+    // Platform Info Banner
+    const PlatformInfoBanner = () => {
+        const currentPlatform = platforms[activeTab];
+        const isLoggedIn = loginStates[activeTab];
+
+        if (isLoggedIn) {
+            return (
+                <View style={[styles.infoBanner, { backgroundColor: `${currentPlatform.color}15` }]}>
+                    <Text style={[styles.infoBannerText, { color: currentPlatform.color }]}>
+                        ✨ Personalisiert: {currentPlatform.personalizedFeatures}
+                    </Text>
+                </View>
+            );
+        }
+
+        return (
+            <View style={styles.infoBanner}>
+                <Text style={styles.infoBannerText}>
+                    💡 Melde dich an für personalisierten {currentPlatform.name} Content
+                </Text>
+            </View>
+        );
+    };
+
+    const webViewSource = getPersonalizedWebViewSource(activeTab);
 
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
@@ -224,15 +323,23 @@ const HomeScreen = ({ navigation }) => {
                             ]}>
                                 {platform.name}
                             </Text>
+                            {loginStates[key] && (
+                                <View style={[styles.tabLoginDot, { backgroundColor: platform.color }]} />
+                            )}
                         </TouchableOpacity>
                     ))}
                 </View>
+
+                {/* Platform Info Banner */}
+                <PlatformInfoBanner />
 
                 {/* Action Bar */}
                 <View style={styles.actionBar}>
                     <TouchableOpacity style={styles.actionButton} onPress={handleRefresh}>
                         <Text style={styles.actionButtonText}>🔄 Aktualisieren</Text>
                     </TouchableOpacity>
+
+                    <LoginStatusIndicator />
 
                     <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
                         <Text style={styles.actionButtonText}>📤 Teilen</Text>
@@ -242,49 +349,66 @@ const HomeScreen = ({ navigation }) => {
                 {/* WebView Container with Swipe Gesture */}
                 <PanGestureHandler onHandlerStateChange={onSwipeGesture}>
                     <View style={styles.webViewContainer}>
-                        {isLoading ? (
-                            <View style={styles.loadingContainer}>
-                                <ActivityIndicator size="large" color={platforms[activeTab].color} />
-                                <Text style={styles.loadingText}>
-                                    {platforms[activeTab].name} wird geladen...
-                                </Text>
-                            </View>
-                        ) : (
-                            <WebView
-                                key={`${activeTab}-${webViewKey}`}
-                                ref={webViewRefs[activeTab]}
-                                source={webViewSource}
-                                style={styles.webView}
-                                startInLoadingState={true}
-                                renderLoading={() => (
-                                    <View style={styles.webViewLoading}>
-                                        <ActivityIndicator size="large" color={platforms[activeTab].color} />
-                                    </View>
-                                )}
-                                onLoadStart={() => setIsLoading(true)}
-                                onLoadEnd={() => setIsLoading(false)}
-                                onError={(syntheticEvent) => {
-                                    const { nativeEvent } = syntheticEvent;
-                                    Alert.alert(
-                                        'Fehler beim Laden',
-                                        `${platforms[activeTab].name} konnte nicht geladen werden. Überprüfe deine Internetverbindung.`,
-                                        [
-                                            { text: 'Wiederholen', onPress: handleRefresh },
-                                            { text: 'Abbrechen', style: 'cancel' }
-                                        ]
-                                    );
-                                }}
-                                javaScriptEnabled={true}
-                                domStorageEnabled={true}
-                                allowsInlineMediaPlayback={true}
-                                mediaPlaybackRequiresUserAction={false}
-                                scalesPageToFit={true}
-                                bounces={true}
-                                scrollEnabled={true}
-                                showsHorizontalScrollIndicator={false}
-                                showsVerticalScrollIndicator={false}
-                            />
-                        )}
+                        <WebView
+                            key={`${activeTab}-${webViewKey}`}
+                            ref={webViewRefs[activeTab]}
+                            source={webViewSource}
+                            style={styles.webView}
+                            startInLoadingState={false}
+                            onError={(syntheticEvent) => {
+                                const { nativeEvent } = syntheticEvent;
+                                console.log('WebView error:', nativeEvent);
+
+                                Alert.alert(
+                                    'Fehler beim Laden',
+                                    `${platforms[activeTab].name} konnte nicht geladen werden.\n\nMöglicherweise ist der Login abgelaufen oder die Internetverbindung ist unterbrochen.`,
+                                    [
+                                        { text: 'Wiederholen', onPress: handleRefresh },
+                                        {
+                                            text: loginStates[activeTab] ? 'Login prüfen' : 'Anmelden',
+                                            onPress: () => {
+                                                if (loginStates[activeTab]) {
+                                                    handleLoginExpired(activeTab);
+                                                } else {
+                                                    navigation.navigate('Onboarding');
+                                                }
+                                            }
+                                        },
+                                        { text: 'Abbrechen', style: 'cancel' }
+                                    ]
+                                );
+                            }}
+                            javaScriptEnabled={true}
+                            domStorageEnabled={true}
+                            allowsInlineMediaPlayback={true}
+                            mediaPlaybackRequiresUserAction={false}
+                            scalesPageToFit={true}
+                            bounces={true}
+                            scrollEnabled={true}
+                            showsHorizontalScrollIndicator={false}
+                            showsVerticalScrollIndicator={false}
+                            // KRITISCH: Cookies aktivieren für personalisierten Feed!
+                            sharedCookiesEnabled={true}
+                            thirdPartyCookiesEnabled={true}
+                            // Cache für bessere Performance
+                            cacheEnabled={true}
+                            incognito={false}
+                            // JavaScript für erweiterte Funktionen
+                            injectedJavaScript={`
+                                // Erweiterte Personalisierung
+                                (function() {
+                                    console.log('🎯 GoonScroll: Personalized feed loaded for ${activeTab}');
+                                    
+                                    // Cookie-Info für Debug
+                                    if (document.cookie) {
+                                        console.log('🍪 Cookies active for ${activeTab}');
+                                    }
+                                    
+                                    // Scroll-Optimierung für mobile
+                                    document.body.style.overscrollBehavior = 'contain';
+                                })();
+                            `}
+                        />
                     </View>
                 </PanGestureHandler>
             </SafeAreaView>
@@ -379,6 +503,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         borderBottomWidth: 3,
         borderBottomColor: 'transparent',
+        position: 'relative',
     },
     tabIcon: {
         fontSize: 16,
@@ -388,6 +513,27 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '600',
         color: '#6B7280',
+    },
+    tabLoginDot: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+    },
+    infoBanner: {
+        backgroundColor: '#EFF6FF',
+        paddingHorizontal: 16,
+        paddingVertical: 6,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB',
+    },
+    infoBannerText: {
+        fontSize: 11,
+        color: '#1D4ED8',
+        fontWeight: '500',
+        textAlign: 'center',
     },
     actionBar: {
         flexDirection: 'row',
@@ -410,20 +556,36 @@ const styles = StyleSheet.create({
         color: '#374151',
         fontWeight: '500',
     },
-    statusIndicator: {
+    loginStatusContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        backgroundColor: 'rgba(0, 0, 0, 0.05)',
+        borderRadius: 12,
+        gap: 4,
     },
-    statusDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
+    loginStatusDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
     },
-    statusText: {
-        fontSize: 12,
-        color: '#6B7280',
+    loginStatusText: {
+        fontSize: 10,
+        color: '#374151',
         fontWeight: '500',
+    },
+    loginPrompt: {
+        marginLeft: 4,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        backgroundColor: '#3B82F6',
+        borderRadius: 8,
+    },
+    loginPromptText: {
+        fontSize: 9,
+        color: '#FFFFFF',
+        fontWeight: '600',
     },
     webViewContainer: {
         flex: 1,
@@ -431,48 +593,6 @@ const styles = StyleSheet.create({
     },
     webView: {
         flex: 1,
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-    },
-    loadingText: {
-        marginTop: 16,
-        fontSize: 16,
-        color: '#6B7280',
-        fontWeight: '500',
-    },
-    webViewLoading: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-    },
-    bottomBar: {
-        backgroundColor: '#FFFFFF',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderTopWidth: 1,
-        borderTopColor: '#E5E7EB',
-    },
-    bottomInfo: {
-        alignItems: 'center',
-    },
-    bottomText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#374151',
-    },
-    bottomSubtext: {
-        fontSize: 12,
-        color: '#6B7280',
-        marginTop: 2,
     },
 });
 
