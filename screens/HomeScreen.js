@@ -141,11 +141,15 @@ const HomeScreen = ({ navigation }) => {
         }
     };
 
+    // In deiner HomeScreen.js - ersetze die navigateToScreen Funktion mit dieser:
+
     const navigateToScreen = (screenName) => {
         if (screenName === 'PowerMode') {
             navigation.navigate('PowerMode');
         } else if (screenName === 'Analytics') {
             navigation.navigate('Analytics');
+        } else if (screenName === 'Settings') {
+            navigation.navigate('Settings');
         } else {
             Alert.alert(
                 screenName,
