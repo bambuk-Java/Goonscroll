@@ -4,16 +4,15 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    ActivityIndicator,
     Alert,
     Share,
     Dimensions,
-    AppState
+    AppState,
+    Image
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { PanGestureHandler, GestureHandlerRootView, State } from 'react-native-gesture-handler';
 import TrackingService from './TrackingService';
 import LoginService from '../services/LoginService';
 
@@ -21,7 +20,6 @@ const { width, height } = Dimensions.get('window');
 
 const HomeScreen = ({ navigation }) => {
     const [activeTab, setActiveTab] = useState('youtube');
-    const [isLoading, setIsLoading] = useState(false);
     const [webViewKey, setWebViewKey] = useState(0);
     const [loginStates, setLoginStates] = useState({
         youtube: false,
@@ -35,32 +33,25 @@ const HomeScreen = ({ navigation }) => {
         instagram: useRef(null)
     };
 
-    // Platform order for swiping
-    const platformOrder = ['youtube', 'tiktok', 'instagram'];
-    const currentIndex = platformOrder.indexOf(activeTab);
-
     // Platform configurations with personalized URLs
     const platforms = {
         youtube: {
             name: 'YouTube',
             color: '#FF0000',
-            url: 'https://m.youtube.com/feed/shorts', // Personalized YouTube Shorts feed
-            icon: '📺',
-            personalizedFeatures: 'Deine Shorts, Subscriptions, Empfehlungen'
+            url: 'https://m.youtube.com/feed/shorts',
+            icon: '📺'
         },
         tiktok: {
             name: 'TikTok',
             color: '#000000',
-            url: 'https://www.tiktok.com/foryou', // For You personalized page
-            icon: '🎵',
-            personalizedFeatures: 'For You, Following, Likes'
+            url: 'https://www.tiktok.com/foryou',
+            icon: '🎵'
         },
         instagram: {
             name: 'Instagram',
             color: '#E4405F',
-            url: 'https://www.instagram.com/', // Personal feed
-            icon: '📸',
-            personalizedFeatures: 'Feed, Stories, Reels, Explore'
+            url: 'https://www.instagram.com/',
+            icon: '📸'
         }
     };
 
@@ -75,7 +66,7 @@ const HomeScreen = ({ navigation }) => {
                 TrackingService.endSession();
             } else if (nextAppState === 'active') {
                 TrackingService.startSession(activeTab);
-                loadLoginStates(); // Refresh login states when app becomes active
+                loadLoginStates();
             }
         };
 
@@ -129,29 +120,6 @@ const HomeScreen = ({ navigation }) => {
         setActiveTab(tab);
     };
 
-    // Handle swipe gestures
-    const onSwipeGesture = (event) => {
-        if (event.nativeEvent.state === State.END) {
-            const { translationX, velocityX } = event.nativeEvent;
-
-            // Minimum swipe distance and velocity
-            const minSwipeDistance = 50;
-            const minVelocity = 500;
-
-            if (Math.abs(translationX) > minSwipeDistance || Math.abs(velocityX) > minVelocity) {
-                if (translationX > 0 && velocityX > 0) {
-                    // Swipe right - go to previous tab
-                    const prevIndex = currentIndex > 0 ? currentIndex - 1 : platformOrder.length - 1;
-                    handleTabSwitch(platformOrder[prevIndex]);
-                } else if (translationX < 0 && velocityX < 0) {
-                    // Swipe left - go to next tab
-                    const nextIndex = currentIndex < platformOrder.length - 1 ? currentIndex + 1 : 0;
-                    handleTabSwitch(platformOrder[nextIndex]);
-                }
-            }
-        }
-    };
-
     const handleShare = async () => {
         try {
             const currentPlatform = platforms[activeTab];
@@ -162,7 +130,6 @@ const HomeScreen = ({ navigation }) => {
                 url: currentPlatform.url
             });
 
-            // Track the share
             await TrackingService.trackShare(activeTab);
         } catch (error) {
             Alert.alert('Fehler', 'Teilen fehlgeschlagen');
@@ -176,7 +143,6 @@ const HomeScreen = ({ navigation }) => {
         }
     };
 
-    // Check if login is expired and handle accordingly
     const handleLoginExpired = async (platform) => {
         try {
             await LoginService.logout(platform);
@@ -214,205 +180,126 @@ const HomeScreen = ({ navigation }) => {
         }
     };
 
-    // Login Status Indicator Component
-    const LoginStatusIndicator = () => {
-        const currentPlatformLoggedIn = loginStates[activeTab];
-
-        return (
-            <View style={styles.loginStatusContainer}>
-                <View style={[
-                    styles.loginStatusDot,
-                    { backgroundColor: currentPlatformLoggedIn ? '#10B981' : '#EF4444' }
-                ]} />
-                <Text style={styles.loginStatusText}>
-                    {currentPlatformLoggedIn ? '🎯 Personalisiert' : '🔓 Öffentlich'}
-                </Text>
-                {!currentPlatformLoggedIn && (
-                    <TouchableOpacity
-                        style={styles.loginPrompt}
-                        onPress={() => navigation.navigate('Onboarding')}
-                    >
-                        <Text style={styles.loginPromptText}>Anmelden</Text>
-                    </TouchableOpacity>
-                )}
-            </View>
-        );
-    };
-
-    // Platform Info Banner
-    const PlatformInfoBanner = () => {
-        const currentPlatform = platforms[activeTab];
-        const isLoggedIn = loginStates[activeTab];
-
-        if (isLoggedIn) {
-            return (
-                <View style={[styles.infoBanner, { backgroundColor: `${currentPlatform.color}15` }]}>
-                    <Text style={[styles.infoBannerText, { color: currentPlatform.color }]}>
-                        ✨ Personalisiert: {currentPlatform.personalizedFeatures}
-                    </Text>
-                </View>
-            );
-        }
-
-        return (
-            <View style={styles.infoBanner}>
-                <Text style={styles.infoBannerText}>
-                    💡 Melde dich an für personalisierten {currentPlatform.name} Content
-                </Text>
-            </View>
-        );
-    };
-
     const webViewSource = getPersonalizedWebViewSource(activeTab);
 
     return (
-        <GestureHandlerRootView style={{ flex: 1 }}>
-            <SafeAreaView style={styles.container}>
-                <StatusBar style="dark" />
+        <SafeAreaView style={styles.container}>
+            <StatusBar style="dark" />
 
-                {/* Header */}
-                <View style={styles.header}>
-                    <View style={styles.logoContainer}>
-                        <View style={styles.pigLogo}>
-                            <View style={styles.pigFace}>
-                                <View style={[styles.pigEye, { left: 6 }]} />
-                                <View style={[styles.pigEye, { right: 6 }]} />
-                                <View style={styles.pigSnout} />
-                            </View>
-                        </View>
-                        <Text style={styles.appTitle}>GoonScroll</Text>
-                    </View>
-
-                    <View style={styles.headerActions}>
-                        <TouchableOpacity
-                            style={styles.headerButton}
-                            onPress={() => navigateToScreen('PowerMode')}
-                        >
-                            <Text style={styles.headerButtonText}>⚡</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.headerButton}
-                            onPress={() => navigateToScreen('Analytics')}
-                        >
-                            <Text style={styles.headerButtonText}>📊</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.headerButton}
-                            onPress={() => navigateToScreen('Settings')}
-                        >
-                            <Text style={styles.headerButtonText}>⚙️</Text>
-                        </TouchableOpacity>
-                    </View>
+            {/* Header */}
+            <View style={styles.header}>
+                <View style={styles.logoContainer}>
+                    <Image
+                        source={require('../assets/SchweinBild.png')}
+                        style={styles.pigImage}
+                        resizeMode="cover"
+                    />
+                    <Text style={styles.appTitle}>goonscroll_</Text>
                 </View>
 
-                {/* Tab Navigation */}
-                <View style={styles.tabContainer}>
-                    {Object.entries(platforms).map(([key, platform]) => (
-                        <TouchableOpacity
-                            key={key}
-                            style={[
-                                styles.tab,
-                                activeTab === key && { borderBottomColor: platform.color }
-                            ]}
-                            onPress={() => handleTabSwitch(key)}
-                        >
-                            <Text style={styles.tabIcon}>{platform.icon}</Text>
-                            <Text style={[
-                                styles.tabText,
-                                activeTab === key && { color: platform.color }
-                            ]}>
-                                {platform.name}
-                            </Text>
-                            {loginStates[key] && (
-                                <View style={[styles.tabLoginDot, { backgroundColor: platform.color }]} />
-                            )}
-                        </TouchableOpacity>
-                    ))}
-                </View>
-
-                {/* Platform Info Banner */}
-                <PlatformInfoBanner />
-
-                {/* Action Bar */}
-                <View style={styles.actionBar}>
-                    <TouchableOpacity style={styles.actionButton} onPress={handleRefresh}>
-                        <Text style={styles.actionButtonText}>🔄 Aktualisieren</Text>
+                <View style={styles.headerActions}>
+                    <TouchableOpacity
+                        style={styles.headerButton}
+                        onPress={() => navigateToScreen('PowerMode')}
+                    >
+                        <Text style={styles.headerButtonText}>⚡</Text>
                     </TouchableOpacity>
-
-                    <LoginStatusIndicator />
-
-                    <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
-                        <Text style={styles.actionButtonText}>📤 Teilen</Text>
+                    <TouchableOpacity
+                        style={styles.headerButton}
+                        onPress={() => navigateToScreen('Analytics')}
+                    >
+                        <Text style={styles.headerButtonText}>📊</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.headerButton}
+                        onPress={() => navigateToScreen('Settings')}
+                    >
+                        <Text style={styles.headerButtonText}>⚙️</Text>
                     </TouchableOpacity>
                 </View>
+            </View>
 
-                {/* WebView Container with Swipe Gesture */}
-                <PanGestureHandler onHandlerStateChange={onSwipeGesture}>
-                    <View style={styles.webViewContainer}>
-                        <WebView
-                            key={`${activeTab}-${webViewKey}`}
-                            ref={webViewRefs[activeTab]}
-                            source={webViewSource}
-                            style={styles.webView}
-                            startInLoadingState={false}
-                            onError={(syntheticEvent) => {
-                                const { nativeEvent } = syntheticEvent;
-                                console.log('WebView error:', nativeEvent);
+            {/* Tab Navigation */}
+            <View style={styles.tabContainer}>
+                {Object.entries(platforms).map(([key, platform]) => (
+                    <TouchableOpacity
+                        key={key}
+                        style={[
+                            styles.tab,
+                            activeTab === key && { borderBottomColor: platform.color }
+                        ]}
+                        onPress={() => handleTabSwitch(key)}
+                    >
+                        <Text style={styles.tabIcon}>{platform.icon}</Text>
+                        <Text style={[
+                            styles.tabText,
+                            activeTab === key && { color: platform.color }
+                        ]}>
+                            {platform.name}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
 
-                                Alert.alert(
-                                    'Fehler beim Laden',
-                                    `${platforms[activeTab].name} konnte nicht geladen werden.\n\nMöglicherweise ist der Login abgelaufen oder die Internetverbindung ist unterbrochen.`,
-                                    [
-                                        { text: 'Wiederholen', onPress: handleRefresh },
-                                        {
-                                            text: loginStates[activeTab] ? 'Login prüfen' : 'Anmelden',
-                                            onPress: () => {
-                                                if (loginStates[activeTab]) {
-                                                    handleLoginExpired(activeTab);
-                                                } else {
-                                                    navigation.navigate('Onboarding');
-                                                }
-                                            }
-                                        },
-                                        { text: 'Abbrechen', style: 'cancel' }
-                                    ]
-                                );
-                            }}
-                            javaScriptEnabled={true}
-                            domStorageEnabled={true}
-                            allowsInlineMediaPlayback={true}
-                            mediaPlaybackRequiresUserAction={false}
-                            scalesPageToFit={true}
-                            bounces={true}
-                            scrollEnabled={true}
-                            showsHorizontalScrollIndicator={false}
-                            showsVerticalScrollIndicator={false}
-                            // KRITISCH: Cookies aktivieren für personalisierten Feed!
-                            sharedCookiesEnabled={true}
-                            thirdPartyCookiesEnabled={true}
-                            // Cache für bessere Performance
-                            cacheEnabled={true}
-                            incognito={false}
-                            // JavaScript für erweiterte Funktionen
-                            injectedJavaScript={`
-                                // Erweiterte Personalisierung
-                                (function() {
-                                    console.log('🎯 GoonScroll: Personalized feed loaded for ${activeTab}');
-                                    
-                                    // Cookie-Info für Debug
-                                    if (document.cookie) {
-                                        console.log('🍪 Cookies active for ${activeTab}');
-                                    }
-                                    
-                                    // Scroll-Optimierung für mobile
-                                    document.body.style.overscrollBehavior = 'contain';
-                                })();
-                            `}
-                        />
-                    </View>
-                </PanGestureHandler>
-            </SafeAreaView>
-        </GestureHandlerRootView>
+            {/* Action Bar */}
+            <View style={styles.actionBar}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleRefresh}>
+                    <Text style={styles.actionButtonText}>🔄 Aktualisieren</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
+                    <Text style={styles.actionButtonText}>📤 Teilen</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* WebView Container */}
+            <View style={styles.webViewContainer}>
+                <WebView
+                    key={`${activeTab}-${webViewKey}`}
+                    ref={webViewRefs[activeTab]}
+                    source={webViewSource}
+                    style={styles.webView}
+                    startInLoadingState={false}
+                    onError={(syntheticEvent) => {
+                        const { nativeEvent } = syntheticEvent;
+                        console.log('WebView error:', nativeEvent);
+
+                        Alert.alert(
+                            'Fehler beim Laden',
+                            `${platforms[activeTab].name} konnte nicht geladen werden.`,
+                            [
+                                { text: 'Wiederholen', onPress: handleRefresh },
+                                { text: 'OK', style: 'cancel' }
+                            ]
+                        );
+                    }}
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
+                    allowsInlineMediaPlayback={true}
+                    mediaPlaybackRequiresUserAction={false}
+                    scalesPageToFit={true}
+                    bounces={true}
+                    scrollEnabled={true}
+                    showsHorizontalScrollIndicator={false}
+                    showsVerticalScrollIndicator={false}
+                    sharedCookiesEnabled={true}
+                    thirdPartyCookiesEnabled={true}
+                    cacheEnabled={true}
+                    incognito={false}
+                    injectedJavaScript={`
+                        (function() {
+                            console.log('🎯 GoonScroll: Personalized feed loaded for ${activeTab}');
+                            
+                            if (document.cookie) {
+                                console.log('🍪 Cookies active for ${activeTab}');
+                            }
+                            
+                            document.body.style.overscrollBehavior = 'contain';
+                        })();
+                    `}
+                />
+            </View>
+        </SafeAreaView>
     );
 };
 
@@ -438,38 +325,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
-    pigLogo: {
+    pigImage: {
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#EC4899',
         marginRight: 8,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    pigFace: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#F9A8D4',
-        position: 'relative',
-    },
-    pigEye: {
-        width: 4,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#BE185D',
-        position: 'absolute',
-        top: 4,
-    },
-    pigSnout: {
-        width: 8,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#BE185D',
-        position: 'absolute',
-        bottom: 6,
-        left: 8,
     },
     appTitle: {
         fontSize: 20,
@@ -503,7 +363,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         borderBottomWidth: 3,
         borderBottomColor: 'transparent',
-        position: 'relative',
     },
     tabIcon: {
         fontSize: 16,
@@ -513,27 +372,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '600',
         color: '#6B7280',
-    },
-    tabLoginDot: {
-        position: 'absolute',
-        top: 8,
-        right: 8,
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-    },
-    infoBanner: {
-        backgroundColor: '#EFF6FF',
-        paddingHorizontal: 16,
-        paddingVertical: 6,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
-    },
-    infoBannerText: {
-        fontSize: 11,
-        color: '#1D4ED8',
-        fontWeight: '500',
-        textAlign: 'center',
     },
     actionBar: {
         flexDirection: 'row',
@@ -555,37 +393,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#374151',
         fontWeight: '500',
-    },
-    loginStatusContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        backgroundColor: 'rgba(0, 0, 0, 0.05)',
-        borderRadius: 12,
-        gap: 4,
-    },
-    loginStatusDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-    },
-    loginStatusText: {
-        fontSize: 10,
-        color: '#374151',
-        fontWeight: '500',
-    },
-    loginPrompt: {
-        marginLeft: 4,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        backgroundColor: '#3B82F6',
-        borderRadius: 8,
-    },
-    loginPromptText: {
-        fontSize: 9,
-        color: '#FFFFFF',
-        fontWeight: '600',
     },
     webViewContainer: {
         flex: 1,

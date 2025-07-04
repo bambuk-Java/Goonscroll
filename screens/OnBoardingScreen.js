@@ -7,10 +7,11 @@ import {
     TouchableOpacity,
     ScrollView,
     Alert,
-    ActivityIndicator
+    ActivityIndicator,
+    Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import LoginModal from '../components/LoginModal';
+import LoginModal from '../components/LoginModal'; // ← GEÄNDERT
 import LoginService from '../services/LoginService';
 
 const OnboardingScreen = ({ navigation }) => {
@@ -248,13 +249,11 @@ const OnboardingScreen = ({ navigation }) => {
             {/* Header */}
             <View style={styles.header}>
                 <View style={styles.logoContainer}>
-                    <View style={styles.pigLogo}>
-                        <View style={styles.pigFace}>
-                            <View style={[styles.pigEye, { left: 6 }]} />
-                            <View style={[styles.pigEye, { right: 6 }]} />
-                            <View style={styles.pigSnout} />
-                        </View>
-                    </View>
+                    <Image
+                        source={require('../assets/SchweinBild.png')}
+                        style={styles.pigImage}
+                        resizeMode="cover"
+                    />
                     <Text style={styles.appTitle}>GoonScroll</Text>
                 </View>
 
@@ -485,38 +484,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
-    pigLogo: {
+    pigImage: {
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#EC4899',
         marginRight: 8,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    pigFace: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#F9A8D4',
-        position: 'relative',
-    },
-    pigEye: {
-        width: 4,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#BE185D',
-        position: 'absolute',
-        top: 4,
-    },
-    pigSnout: {
-        width: 8,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#BE185D',
-        position: 'absolute',
-        bottom: 6,
-        left: 8,
     },
     appTitle: {
         fontSize: 20,

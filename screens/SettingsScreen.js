@@ -5,12 +5,90 @@ import {
     StyleSheet,
     TouchableOpacity,
     ScrollView,
-    Switch
+    Alert,
+    Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import LoginService from '../services/LoginService';
+import SessionRecovery from '../utils/SessionRecovery';
 
 const SettingsScreen = ({ navigation }) => {
+    const [sessionStats, setSessionStats] = useState(null);
+    const [sessionHealth, setSessionHealth] = useState(null);
+
+    useEffect(() => {
+        loadSessionData();
+    }, []);
+
+    const loadSessionData = async () => {
+        try {
+            const [stats, health] = await Promise.all([
+                LoginService.getLoginStats(),
+                LoginService.getSessionHealth()
+            ]);
+
+            setSessionStats(stats);
+            setSessionHealth(health);
+        } catch (error) {
+            console.error('Error loading session data:', error);
+        }
+    };
+
+    const handleRefreshSessions = async () => {
+        Alert.alert(
+            'Sessions aktualisieren',
+            'Möchtest du alle aktiven Sessions aktualisieren?',
+            [
+                { text: 'Abbrechen', style: 'cancel' },
+                {
+                    text: 'Aktualisieren',
+                    onPress: async () => {
+                        try {
+                            await SessionRecovery.attemptAutoRecovery();
+                            await loadSessionData();
+                            Alert.alert('Erfolg', 'Sessions wurden aktualisiert!');
+                        } catch (error) {
+                            Alert.alert('Fehler', 'Sessions konnten nicht aktualisiert werden.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleCreateBackup = async () => {
+        try {
+            await SessionRecovery.createSessionBackup();
+            Alert.alert('Backup erstellt', 'Session-Backup wurde erfolgreich erstellt.');
+        } catch (error) {
+            Alert.alert('Fehler', 'Backup konnte nicht erstellt werden.');
+        }
+    };
+
+    const handleLogoutAll = async () => {
+        Alert.alert(
+            'Alle Abmelden',
+            'Möchtest du dich von allen Plattformen abmelden?',
+            [
+                { text: 'Abbrechen', style: 'cancel' },
+                {
+                    text: 'Alle Abmelden',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await LoginService.logoutAll();
+                            await loadSessionData();
+                            Alert.alert('Abgemeldet', 'Du wurdest von allen Plattformen abgemeldet.');
+                        } catch (error) {
+                            Alert.alert('Fehler', 'Abmeldung fehlgeschlagen.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     return (
         <SafeAreaView style={styles.container}>
             <StatusBar style="dark" />
@@ -24,19 +102,156 @@ const SettingsScreen = ({ navigation }) => {
                     <Text style={styles.backButtonText}>←</Text>
                 </TouchableOpacity>
                 <View style={styles.logoContainer}>
-                    <View style={styles.pigLogo}>
-                        <View style={styles.pigFace}>
-                            <View style={[styles.pigEye, { left: 6 }]} />
-                            <View style={[styles.pigEye, { right: 6 }]} />
-                            <View style={styles.pigSnout} />
-                        </View>
-                    </View>
+                    <Image
+                        source={require('../assets/SchweinBild.png')}
+                        style={styles.pigImage}
+                        resizeMode="cover"
+                    />
                     <Text style={styles.appTitle}>Einstellungen</Text>
                 </View>
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                {/* App Info - OHNE Switches */}
+                {/* Session-Status */}
+                {sessionHealth && (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>📊 Session-Status</Text>
+                        <View style={[
+                            styles.sessionHealthCard,
+                            {
+                                borderLeftColor:
+                                    sessionHealth.overall === 'healthy' ? '#10B981' :
+                                        sessionHealth.overall === 'warning' ? '#F59E0B' : '#EF4444'
+                            }
+                        ]}>
+                            <View style={styles.healthHeader}>
+                                <Text style={styles.healthTitle}>
+                                    {sessionHealth.overall === 'healthy' ? '✅ Alle Sessions gesund' :
+                                        sessionHealth.overall === 'warning' ? '⚠️ Session-Warnungen' : '❌ Session-Probleme'}
+                                </Text>
+                                <Text style={[
+                                    styles.healthStatus,
+                                    {
+                                        color:
+                                            sessionHealth.overall === 'healthy' ? '#10B981' :
+                                                sessionHealth.overall === 'warning' ? '#F59E0B' : '#EF4444'
+                                    }
+                                ]}>
+                                    {sessionHealth.overall}
+                                </Text>
+                            </View>
+
+                            {sessionHealth.issues.length > 0 && (
+                                <View style={styles.issuesContainer}>
+                                    <Text style={styles.issuesTitle}>Probleme:</Text>
+                                    {sessionHealth.issues.map((issue, index) => (
+                                        <Text key={index} style={styles.issueText}>• {issue}</Text>
+                                    ))}
+                                </View>
+                            )}
+
+                            {sessionHealth.recommendations.length > 0 && (
+                                <View style={styles.recommendationsContainer}>
+                                    <Text style={styles.recommendationsTitle}>Empfehlungen:</Text>
+                                    {sessionHealth.recommendations.map((rec, index) => (
+                                        <Text key={index} style={styles.recommendationText}>• {rec}</Text>
+                                    ))}
+                                </View>
+                            )}
+                        </View>
+                    </View>
+                )}
+
+                {/* Session-Management */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>🔧 Session-Management</Text>
+                    <View style={styles.managementCard}>
+                        <TouchableOpacity
+                            style={styles.managementButton}
+                            onPress={handleRefreshSessions}
+                        >
+                            <Text style={styles.managementIcon}>🔄</Text>
+                            <View style={styles.managementText}>
+                                <Text style={styles.managementTitle}>Sessions aktualisieren</Text>
+                                <Text style={styles.managementDesc}>Alle aktiven Sessions prüfen und erneuern</Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.managementButton}
+                            onPress={handleCreateBackup}
+                        >
+                            <Text style={styles.managementIcon}>💾</Text>
+                            <View style={styles.managementText}>
+                                <Text style={styles.managementTitle}>Backup erstellen</Text>
+                                <Text style={styles.managementDesc}>Session-Backup für Wiederherstellung</Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.managementButton}
+                            onPress={() => navigation.navigate('Onboarding')}
+                        >
+                            <Text style={styles.managementIcon}>🔑</Text>
+                            <View style={styles.managementText}>
+                                <Text style={styles.managementTitle}>Logins verwalten</Text>
+                                <Text style={styles.managementDesc}>Zu Login-Verwaltung wechseln</Text>
+                            </View>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.managementButton, styles.dangerButton]}
+                            onPress={handleLogoutAll}
+                        >
+                            <Text style={styles.managementIcon}>🚪</Text>
+                            <View style={styles.managementText}>
+                                <Text style={[styles.managementTitle, styles.dangerText]}>Alle abmelden</Text>
+                                <Text style={styles.managementDesc}>Von allen Plattformen abmelden</Text>
+                            </View>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                {/* Detaillierte Session-Infos */}
+                {sessionStats && (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>📋 Session-Details</Text>
+                        <View style={styles.detailsCard}>
+                            {Object.entries(sessionStats.platforms).map(([platform, data]) => (
+                                <View key={platform} style={styles.platformDetail}>
+                                    <View style={styles.platformDetailHeader}>
+                                        <Text style={styles.platformDetailName}>
+                                            {platform === 'youtube' ? 'YouTube' :
+                                                platform === 'tiktok' ? 'TikTok' : 'Instagram'}
+                                        </Text>
+                                        <Text style={[
+                                            styles.platformDetailStatus,
+                                            { color: data.isLoggedIn ? '#10B981' : '#6B7280' }
+                                        ]}>
+                                            {data.isLoggedIn ? '✅ Angemeldet' : '❌ Nicht angemeldet'}
+                                        </Text>
+                                    </View>
+
+                                    {data.isLoggedIn && (
+                                        <View style={styles.platformDetailInfo}>
+                                            <Text style={styles.platformDetailText}>
+                                                Session: {data.sessionAgeFormatted}
+                                            </Text>
+                                            <Text style={styles.platformDetailText}>
+                                                Letzte Aktivität: {data.lastActivityFormatted}
+                                            </Text>
+                                            {data.isExpired && (
+                                                <Text style={styles.expiredText}>⚠️ Session abgelaufen</Text>
+                                            )}
+                                        </View>
+                                    )}
+                                </View>
+                            ))}
+                        </View>
+                    </View>
+                )}
+
+                {/* App Info */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>ℹ️ App-Information</Text>
                     <View style={styles.infoCard}>
@@ -49,72 +264,14 @@ const SettingsScreen = ({ navigation }) => {
                             <Text style={styles.infoValue}>✅ Aktiviert</Text>
                         </View>
                         <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Plattformen:</Text>
-                            <Text style={styles.infoValue}>YouTube, TikTok, Instagram</Text>
+                            <Text style={styles.infoLabel}>Session-Recovery:</Text>
+                            <Text style={styles.infoValue}>✅ Aktiv</Text>
                         </View>
                         <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Entwickler:</Text>
-                            <Text style={styles.infoValue}>GoonScroll Team</Text>
-                        </View>
-                    </View>
-                </View>
-
-                {/* Schnellzugriff */}
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>🚀 Schnellzugriff</Text>
-                    <View style={styles.quickActions}>
-                        <TouchableOpacity
-                            style={styles.quickAction}
-                            onPress={() => navigation.navigate('PowerMode')}
-                        >
-                            <Text style={styles.quickActionIcon}>⚡</Text>
-                            <Text style={styles.quickActionText}>PowerMode</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.quickAction}
-                            onPress={() => navigation.navigate('Analytics')}
-                        >
-                            <Text style={styles.quickActionIcon}>📊</Text>
-                            <Text style={styles.quickActionText}>Analytics</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.quickAction}
-                            onPress={() => navigation.navigate('Home')}
-                        >
-                            <Text style={styles.quickActionIcon}>🏠</Text>
-                            <Text style={styles.quickActionText}>Home</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-
-                {/* Features */}
-                <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>✨ Features</Text>
-                    <View style={styles.featuresCard}>
-                        <View style={styles.featureItem}>
-                            <Text style={styles.featureIcon}>📺</Text>
-                            <View style={styles.featureText}>
-                                <Text style={styles.featureTitle}>Multi-Platform</Text>
-                                <Text style={styles.featureSubtitle}>YouTube, TikTok & Instagram in einer App</Text>
-                            </View>
-                        </View>
-
-                        <View style={styles.featureItem}>
-                            <Text style={styles.featureIcon}>⚡</Text>
-                            <View style={styles.featureText}>
-                                <Text style={styles.featureTitle}>PowerMode</Text>
-                                <Text style={styles.featureSubtitle}>Drei Videos gleichzeitig im Querformat</Text>
-                            </View>
-                        </View>
-
-                        <View style={styles.featureItem}>
-                            <Text style={styles.featureIcon}>📊</Text>
-                            <View style={styles.featureText}>
-                                <Text style={styles.featureTitle}>Analytics</Text>
-                                <Text style={styles.featureSubtitle}>Detaillierte Nutzungsstatistiken</Text>
-                            </View>
+                            <Text style={styles.infoLabel}>Angemeldete Plattformen:</Text>
+                            <Text style={styles.infoValue}>
+                                {sessionStats ? sessionStats.summary.totalLoggedIn : 0}/3
+                            </Text>
                         </View>
                     </View>
                 </View>
@@ -161,38 +318,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
-    pigLogo: {
+    pigImage: {
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#EC4899',
         marginRight: 8,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    pigFace: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#F9A8D4',
-        position: 'relative',
-    },
-    pigEye: {
-        width: 4,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#BE185D',
-        position: 'absolute',
-        top: 4,
-    },
-    pigSnout: {
-        width: 8,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#BE185D',
-        position: 'absolute',
-        bottom: 6,
-        left: 8,
     },
     appTitle: {
         fontSize: 20,
@@ -213,8 +343,72 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
 
-    // Settings Card
-    settingsCard: {
+    // Session Health Card
+    sessionHealthCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 16,
+        borderLeftWidth: 4,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    healthHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    healthTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#111827',
+        flex: 1,
+    },
+    healthStatus: {
+        fontSize: 12,
+        fontWeight: '500',
+        textTransform: 'uppercase',
+    },
+    issuesContainer: {
+        marginTop: 8,
+        padding: 12,
+        backgroundColor: '#FEF3C7',
+        borderRadius: 6,
+    },
+    issuesTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#92400E',
+        marginBottom: 4,
+    },
+    issueText: {
+        fontSize: 12,
+        color: '#92400E',
+        lineHeight: 16,
+    },
+    recommendationsContainer: {
+        marginTop: 8,
+        padding: 12,
+        backgroundColor: '#EFF6FF',
+        borderRadius: 6,
+    },
+    recommendationsTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1E40AF',
+        marginBottom: 4,
+    },
+    recommendationText: {
+        fontSize: 12,
+        color: '#1E40AF',
+        lineHeight: 16,
+    },
+
+    // Management Card
+    managementCard: {
         backgroundColor: '#FFFFFF',
         borderRadius: 12,
         shadowColor: '#000',
@@ -223,28 +417,83 @@ const styles = StyleSheet.create({
         shadowRadius: 3,
         elevation: 2,
     },
-    settingItem: {
+    managementButton: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 16,
+        padding: 16,
         borderBottomWidth: 1,
         borderBottomColor: '#F3F4F6',
     },
-    settingText: {
-        flex: 1,
-        marginRight: 16,
+    managementIcon: {
+        fontSize: 24,
+        marginRight: 12,
+        width: 32,
+        textAlign: 'center',
     },
-    settingTitle: {
+    managementText: {
+        flex: 1,
+    },
+    managementTitle: {
         fontSize: 16,
         fontWeight: '600',
         color: '#111827',
         marginBottom: 2,
     },
-    settingSubtitle: {
+    managementDesc: {
         fontSize: 14,
         color: '#6B7280',
+    },
+    dangerButton: {
+        borderBottomWidth: 0,
+    },
+    dangerText: {
+        color: '#EF4444',
+    },
+
+    // Details Card
+    detailsCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    platformDetail: {
+        marginBottom: 16,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6',
+    },
+    platformDetailHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    platformDetailName: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#111827',
+    },
+    platformDetailStatus: {
+        fontSize: 12,
+        fontWeight: '500',
+    },
+    platformDetailInfo: {
+        marginLeft: 8,
+    },
+    platformDetailText: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginBottom: 2,
+    },
+    expiredText: {
+        fontSize: 12,
+        color: '#EF4444',
+        fontWeight: '500',
     },
 
     // Info Card
@@ -272,70 +521,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
         color: '#111827',
-    },
-
-    // Quick Actions
-    quickActions: {
-        flexDirection: 'row',
-        gap: 12,
-    },
-    quickAction: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 16,
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-        elevation: 2,
-    },
-    quickActionIcon: {
-        fontSize: 24,
-        marginBottom: 8,
-    },
-    quickActionText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#374151',
-        textAlign: 'center',
-    },
-
-    // Features Card
-    featuresCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-        elevation: 2,
-    },
-    featureItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    featureIcon: {
-        fontSize: 24,
-        marginRight: 12,
-        width: 32,
-        textAlign: 'center',
-    },
-    featureText: {
-        flex: 1,
-    },
-    featureTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#111827',
-        marginBottom: 2,
-    },
-    featureSubtitle: {
-        fontSize: 14,
-        color: '#6B7280',
     },
 });
 

@@ -7,7 +7,8 @@ import {
     ScrollView,
     Dimensions,
     Animated,
-    RefreshControl
+    RefreshControl,
+    Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -250,13 +251,11 @@ const AnalyticsScreen = ({ navigation }) => {
                         <Text style={styles.backButtonText}>←</Text>
                     </TouchableOpacity>
                     <View style={styles.logoContainer}>
-                        <View style={styles.pigLogo}>
-                            <View style={styles.pigFace}>
-                                <View style={[styles.pigEye, { left: 6 }]} />
-                                <View style={[styles.pigEye, { right: 6 }]} />
-                                <View style={styles.pigSnout} />
-                            </View>
-                        </View>
+                        <Image
+                            source={require('../assets/SchweinBild.png')}
+                            style={styles.pigImage}
+                            resizeMode="cover"
+                        />
                         <Text style={styles.appTitle}>Analytics</Text>
                     </View>
                 </View>
@@ -430,38 +429,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
-    pigLogo: {
+    pigImage: {
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#EC4899',
         marginRight: 8,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    pigFace: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: '#F9A8D4',
-        position: 'relative',
-    },
-    pigEye: {
-        width: 4,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#BE185D',
-        position: 'absolute',
-        top: 4,
-    },
-    pigSnout: {
-        width: 8,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: '#BE185D',
-        position: 'absolute',
-        bottom: 6,
-        left: 8,
     },
     appTitle: {
         fontSize: 20,
@@ -688,41 +660,10 @@ const styles = StyleSheet.create({
     insightText: {
         fontSize: 12,
         color: '#6B7280',
-    }, sContainer: {
+    },
+    insightsContainer: {
         gap: 12,
     },
-    insightCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-        elevation: 2,
-    },
-    insightIcon: {
-        fontSize: 24,
-        marginRight: 12,
-    },
-    insightTitle: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#111827',
-        marginBottom: 2,
-        flex: 1,
-    },
-    insightText: {
-        fontSize: 12,
-        color: '#6B7280',
-        flex: 2,
-    },
-    View: {
-        flex: 1,
-        padding: 16,
-    }
 });
 
 export default AnalyticsScreen;
